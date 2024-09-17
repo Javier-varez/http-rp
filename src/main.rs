@@ -3,6 +3,8 @@
 #![feature(type_alias_impl_trait)]
 #![feature(impl_trait_in_assoc_type)]
 
+pub mod usb;
+
 use cyw43_pio::PioSpi;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
@@ -19,117 +21,11 @@ bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => embassy_rp::usb::InterruptHandler<embassy_rp::peripherals::USB>;
 });
 
-struct ResetHandler {
-    iface_num: embassy_usb::types::InterfaceNumber,
-}
-
-impl embassy_usb::Handler for ResetHandler {
-    fn control_in<'a>(
-        &'a mut self,
-        req: embassy_usb::control::Request,
-        _buf: &'a mut [u8],
-    ) -> Option<embassy_usb::control::InResponse<'a>> {
-        if !(req.request_type == embassy_usb::control::RequestType::Class
-            && req.recipient == embassy_usb::control::Recipient::Interface
-            && req.index == u8::from(self.iface_num) as u16)
-        {
-            return None;
-        }
-        // we are not expecting any USB IN requests
-        Some(embassy_usb::control::InResponse::Rejected)
-    }
-
-    fn control_out(
-        &mut self,
-        req: embassy_usb::control::Request,
-        _data: &[u8],
-    ) -> Option<embassy_usb::control::OutResponse> {
-        if !(req.request_type == embassy_usb::control::RequestType::Class
-            && req.recipient == embassy_usb::control::Recipient::Interface
-            && req.index == u8::from(self.iface_num) as u16)
-        {
-            return None;
-        }
-
-        const RESET_REQUEST_BOOTSEL: u8 = 0x01;
-        const RESET_REQUEST_FLASH: u8 = 0x02;
-
-        match req.request {
-            RESET_REQUEST_BOOTSEL => {
-                embassy_rp::rom_data::reset_to_usb_boot(0, u32::from(req.value & 0x7F));
-                // no-need to accept/reject, we'll reset the device anyway
-                unreachable!()
-            }
-            RESET_REQUEST_FLASH => todo!(),
-            _ => {
-                // we are not expecting any other USB OUT requests
-                Some(embassy_usb::control::OutResponse::Rejected)
-            }
-        }
-    }
-}
-
 #[embassy_executor::task]
 async fn usb_task(usb: embassy_rp::peripherals::USB) {
     let driver = embassy_rp::usb::Driver::new(usb, Irqs);
-
-    let mut config = embassy_usb::Config::new(0x2e8a, 0x0009);
-    config.manufacturer = Some("Javier Alvarez");
-    config.product = Some("rp2040");
-    config.serial_number = None;
-    config.max_power = 100;
-    const MAX_PACKET_SIZE: u8 = 64;
-    config.max_packet_size_0 = MAX_PACKET_SIZE;
-
-    config.device_class = 0xef;
-    config.device_sub_class = 0x02;
-    config.device_protocol = 0x01;
-    config.composite_with_iads = true;
-
-    let mut config_descriptor = [0; 128];
-    let mut bos_descriptor = [0; 16];
-    let mut msos_descriptor = [0; 256];
-    let mut control_buf = [0; 64];
-
-    let mut builder = embassy_usb::Builder::new(
-        driver,
-        config,
-        &mut config_descriptor,
-        &mut bos_descriptor,
-        &mut msos_descriptor,
-        &mut control_buf,
-    );
-
-    const CLASS_VENDOR_SPECIFIC: u8 = 0xFF;
-    const RESET_IFACE_SUBCLASS: u8 = 0x00;
-    const RESET_IFACE_PROTOCOL: u8 = 0x01;
-    let mut function = builder.function(
-        CLASS_VENDOR_SPECIFIC,
-        RESET_IFACE_SUBCLASS,
-        RESET_IFACE_PROTOCOL,
-    );
-
-    // Control interface
-    let mut iface = function.interface();
-    let iface_num = iface.interface_number();
-    iface.alt_setting(
-        CLASS_VENDOR_SPECIFIC,
-        RESET_IFACE_SUBCLASS,
-        RESET_IFACE_PROTOCOL,
-        None,
-    );
-
-    drop(function);
-
-    let handler = make_static!(ResetHandler { iface_num });
-    builder.handler(handler);
-
-    // Build the builder.
-    let mut device = builder.build();
-
-    loop {
-        device.run().await;
-    }
+    let mut device = usb::Device::new(driver);
+    device.run().await
 }
 
 #[embassy_executor::task]
