@@ -1,0 +1,27 @@
+[package]
+name = "http-rp"
+version = "0.1.0"
+edition = "2021"
+authors = ["Javier Alvarez <javier.alvarez@allthingsembedded.net>"]
+categories = ["embedded", "no-std",]
+description = "HTTP server for the RP2040"
+keywords = ["embedded", "raspberry-pi", "rp235x", "rp2350", "embedded-hal"]
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+panic-probe = "0.3.2"
+cyw43 = "0.2.0"
+cyw43-pio = "0.2.0"
+embassy-executor = { version = "0.6.0", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "integrated-timers", "nightly"] }
+embassy-rp = { version = "0.2.0", features = ["boot2-generic-03h", "time-driver", "critical-section-impl"] }
+embassy-time = { version = "0.3.2", features = [] }
+embassy-net = { version = "0.4.0", features = ["tcp", "dhcpv4-hostname", "proto-ipv4"] }
+embassy-usb = { version = "0.2.0", features = [] }
+embassy-usb-logger = { version = "0.2.0", features = [] }
+cortex-m = { version = "0.7.7", features = [] }
+cortex-m-rt = "0.7.3"
+static_cell = { version = "2.1.0", features = ["nightly"] }
+portable-atomic = { version = "1.7.0", features = ["critical-section"] }
+heapless = "0.8.0"
+picoserve = { version =  "0.12.2", features = ["embassy"] }
+log = "0.4.22"
