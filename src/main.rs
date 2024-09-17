@@ -75,6 +75,8 @@ async fn main(spawner: Spawner) {
     let config = embassy_rp::config::Config::new(clock_config);
     let p = embassy_rp::init(config);
 
+    embassy_rp::install_core0_stack_guard().unwrap();
+
     spawner.must_spawn(usb_task(p.USB));
 
     let fw = include_bytes!("../cyw43_fw/43439A0.bin");
