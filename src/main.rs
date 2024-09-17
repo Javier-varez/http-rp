@@ -24,7 +24,7 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::task]
 async fn usb_task(usb: embassy_rp::peripherals::USB) {
     let driver = embassy_rp::usb::Driver::new(usb, Irqs);
-    let mut device = usb::Device::new(driver);
+    let device = usb::Device::new(driver);
     device.run().await
 }
 
