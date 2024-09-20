@@ -12,7 +12,10 @@ use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, PIO0};
 use embassy_rp::pio::Pio;
 use panic_probe as _;
-use picoserve::routing::get;
+use picoserve::{
+    extract::State,
+    routing::{get, post},
+};
 use static_cell::make_static;
 use static_cell::StaticCell;
 
@@ -20,6 +23,28 @@ bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => embassy_rp::pio::InterruptHandler<embassy_rp::peripherals::PIO0>;
     USBCTRL_IRQ => embassy_rp::usb::InterruptHandler<embassy_rp::peripherals::USB>;
 });
+
+#[derive(Clone)]
+struct WebState {
+    control: &'static core::cell::RefCell<&'static mut cyw43::Control<'static>>,
+}
+
+async fn post_led_state(
+    led_state: LedState,
+    State(state): State<WebState>,
+) -> impl picoserve::response::IntoResponse {
+    log::info!("Get /led/{led_state} called");
+    let mut control = state.control.borrow_mut();
+    control.gpio_set(0, led_state.into()).await;
+    picoserve::response::Response::new(picoserve::response::StatusCode::OK, "")
+}
+
+async fn get_index_page(_: State<WebState>) -> impl picoserve::response::IntoResponse {
+    log::info!("Get / called");
+    let html = include_str!("../html/index.html");
+    picoserve::response::Response::new(picoserve::response::StatusCode::OK, html)
+        .with_headers([("content-type", "html")])
+}
 
 #[embassy_executor::task]
 async fn usb_task(usb: embassy_rp::peripherals::USB) {
@@ -40,7 +65,7 @@ async fn net_task(stack: &'static embassy_net::Stack<cyw43::NetDriver<'static>>)
     stack.run().await
 }
 
-type AppRouter = impl picoserve::routing::PathRouter;
+type AppRouter = impl picoserve::routing::PathRouter<WebState>;
 
 const WEB_TASK_POOL_SIZE: usize = 8;
 
@@ -48,15 +73,16 @@ const WEB_TASK_POOL_SIZE: usize = 8;
 async fn web_task(
     id: usize,
     stack: &'static embassy_net::Stack<cyw43::NetDriver<'static>>,
-    app: &'static picoserve::Router<AppRouter>,
+    app: &'static picoserve::Router<AppRouter, WebState>,
     config: &'static picoserve::Config<embassy_time::Duration>,
+    control: &'static core::cell::RefCell<&'static mut cyw43::Control<'static>>,
 ) -> ! {
     let port = 80;
     let mut tcp_rx_buffer = [0; 1024];
     let mut tcp_tx_buffer = [0; 1024];
     let mut http_buffer = [0; 2048];
 
-    picoserve::listen_and_serve(
+    picoserve::listen_and_serve_with_state::<WebState, AppRouter>(
         id,
         app,
         config,
@@ -65,8 +91,46 @@ async fn web_task(
         &mut tcp_rx_buffer,
         &mut tcp_tx_buffer,
         &mut http_buffer,
+        &WebState { control },
     )
     .await
+}
+
+#[derive(Debug, Clone, Copy)]
+enum LedState {
+    Off,
+    On,
+}
+
+impl core::str::FromStr for LedState {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "on" => Ok(LedState::On),
+            "off" => Ok(LedState::Off),
+            _ => Err(()),
+        }
+    }
+}
+
+impl core::fmt::Display for LedState {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let str = match self {
+            LedState::On => "on",
+            LedState::Off => "off",
+        };
+
+        write!(f, "{}", str)
+    }
+}
+
+impl Into<bool> for LedState {
+    fn into(self) -> bool {
+        match self {
+            LedState::On => true,
+            LedState::Off => false,
+        }
+    }
 }
 
 #[embassy_executor::main]
@@ -129,25 +193,21 @@ async fn main(spawner: Spawner) {
         dns_servers,
     });
 
-    static RESOURCES: StaticCell<embassy_net::StackResources<WEB_TASK_POOL_SIZE>> =
-        StaticCell::new();
-    let resources = RESOURCES.init(embassy_net::StackResources::<WEB_TASK_POOL_SIZE>::new());
-
-    static STACK: StaticCell<embassy_net::Stack<cyw43::NetDriver>> = StaticCell::new();
-    let stack = &*STACK.init(embassy_net::Stack::new(_net_device, config, resources, 120));
+    let resources = make_static!(embassy_net::StackResources::<WEB_TASK_POOL_SIZE>::new());
+    let stack = make_static!(embassy_net::Stack::new(_net_device, config, resources, 120));
 
     spawner.spawn(net_task(stack)).unwrap();
 
-    fn make_app() -> picoserve::Router<AppRouter> {
-        picoserve::Router::new().route(
-            "/",
-            get(|| async move {
-                log::info!("Get / called");
-                let html = include_str!("../html/index.html");
-                picoserve::response::Response::new(picoserve::response::StatusCode::OK, html)
-                    .with_headers([("content-type", "html")])
-            }),
-        )
+    let control = make_static!(control);
+    let control = make_static!(core::cell::RefCell::new(control));
+
+    fn make_app() -> picoserve::Router<AppRouter, WebState> {
+        picoserve::Router::new()
+            .route("/", get(get_index_page))
+            .route(
+                ("/led", picoserve::routing::parse_path_segment::<LedState>()),
+                post(post_led_state),
+            )
     }
 
     let app = make_static!(make_app());
@@ -160,6 +220,6 @@ async fn main(spawner: Spawner) {
     .keep_connection_alive());
 
     for id in 0..WEB_TASK_POOL_SIZE {
-        spawner.must_spawn(web_task(id, stack, app, config));
+        spawner.must_spawn(web_task(id, stack, app, config, control));
     }
 }
