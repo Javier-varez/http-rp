@@ -26,13 +26,7 @@ impl<'a> Js<'a> {
 mod generated {
     use super::Js;
 
-    pub(super) static RESOURCES: [(&'static str, Js); 2] = [
-        ("led.js", Js::new(include_str!("../../static/js/led.js"))),
-        (
-            "bootstrap.bundle.min.js",
-            Js::new(include_str!("../../static/js/bootstrap.bundle.min.js")),
-        ),
-    ];
+    include!(concat!(core::env!("OUT_DIR"), "/js.generated.rs"));
 }
 
 pub fn get_resource(name: &str) -> impl picoserve::response::IntoResponse {

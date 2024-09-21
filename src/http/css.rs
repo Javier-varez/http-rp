@@ -24,10 +24,7 @@ impl<'a> Css<'a> {
 mod generated {
     use super::Css;
 
-    pub(super) static RESOURCES: [(&'static str, Css); 1] = [(
-        "bootstrap.min.css",
-        Css::new(include_str!("../../static/css/bootstrap.min.css")),
-    )];
+    include!(concat!(core::env!("OUT_DIR"), "/css.generated.rs"));
 }
 
 pub fn get_resource(name: &str) -> impl picoserve::response::IntoResponse {

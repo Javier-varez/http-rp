@@ -25,10 +25,8 @@ impl<'a> Html<'a> {
 
 mod generated {
     use super::Html;
-    pub(super) static RESOURCES: [(&'static str, Html); 1] = [(
-        "index.html",
-        Html::new(include_str!("../../html/index.html")),
-    )];
+
+    include!(concat!(core::env!("OUT_DIR"), "/html.generated.rs"));
 }
 
 pub fn get_resource(mut name: &str) -> impl picoserve::response::IntoResponse {

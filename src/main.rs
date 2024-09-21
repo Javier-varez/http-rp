@@ -240,7 +240,10 @@ async fn main(spawner: Spawner) {
                 get(get_static_css_page),
             )
             .route(
-                ("/led", picoserve::routing::parse_path_segment::<LedState>()),
+                (
+                    "/api/led",
+                    picoserve::routing::parse_path_segment::<LedState>(),
+                ),
                 post(post_led_state),
             )
     }
