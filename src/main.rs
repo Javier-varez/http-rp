@@ -29,21 +29,92 @@ struct WebState {
     control: &'static core::cell::RefCell<&'static mut cyw43::Control<'static>>,
 }
 
+struct Html(&'static str);
+struct Js(&'static str);
+struct Css(&'static str);
+
+impl picoserve::response::Content for Html {
+    async fn write_content<W: picoserve::io::Write>(self, writer: W) -> Result<(), W::Error> {
+        self.0.as_bytes().write_content(writer).await
+    }
+    fn content_type(&self) -> &'static str {
+        "text/html"
+    }
+    fn content_length(&self) -> usize {
+        self.0.as_bytes().len()
+    }
+}
+
+impl picoserve::response::Content for Js {
+    async fn write_content<W: picoserve::io::Write>(self, writer: W) -> Result<(), W::Error> {
+        self.0.as_bytes().write_content(writer).await
+    }
+    fn content_type(&self) -> &'static str {
+        "text/js"
+    }
+    fn content_length(&self) -> usize {
+        self.0.as_bytes().len()
+    }
+}
+
+impl picoserve::response::Content for Css {
+    async fn write_content<W: picoserve::io::Write>(self, writer: W) -> Result<(), W::Error> {
+        self.0.as_bytes().write_content(writer).await
+    }
+    fn content_type(&self) -> &'static str {
+        "text/css"
+    }
+    fn content_length(&self) -> usize {
+        self.0.as_bytes().len()
+    }
+}
+
 async fn post_led_state(
     led_state: LedState,
     State(state): State<WebState>,
 ) -> impl picoserve::response::IntoResponse {
-    log::info!("Get /led/{led_state} called");
+    log::info!("Get /led/{led_state}");
     let mut control = state.control.borrow_mut();
     control.gpio_set(0, led_state.into()).await;
     picoserve::response::Response::new(picoserve::response::StatusCode::OK, "")
 }
 
+async fn get_static_js_page(
+    page: heapless::String<32>,
+    _: State<WebState>,
+) -> impl picoserve::response::IntoResponse {
+    log::info!("Get /static/js/{page}");
+    match page.as_str() {
+        "bootstrap.bundle.min.js" => picoserve::response::Response::new(
+            picoserve::response::StatusCode::OK,
+            Js(include_str!("../static/js/bootstrap.bundle.min.js")),
+        ),
+        _ => picoserve::response::Response::new(picoserve::response::StatusCode::NOT_FOUND, Js("")),
+    }
+}
+
+async fn get_static_css_page(
+    page: heapless::String<32>,
+    _: State<WebState>,
+) -> impl picoserve::response::IntoResponse {
+    log::info!("Get /static/css/{page}");
+    match page.as_str() {
+        "bootstrap.min.css" => picoserve::response::Response::new(
+            picoserve::response::StatusCode::OK,
+            Css(include_str!("../static/css/bootstrap.min.css")),
+        ),
+        _ => {
+            picoserve::response::Response::new(picoserve::response::StatusCode::NOT_FOUND, Css(""))
+        }
+    }
+}
+
 async fn get_index_page(_: State<WebState>) -> impl picoserve::response::IntoResponse {
-    log::info!("Get / called");
-    let html = include_str!("../html/index.html");
-    picoserve::response::Response::new(picoserve::response::StatusCode::OK, html)
-        .with_headers([("content-type", "html")])
+    log::info!("Get /");
+    picoserve::response::Response::new(
+        picoserve::response::StatusCode::OK,
+        Html(include_str!("../html/index.html")),
+    )
 }
 
 #[embassy_executor::task]
@@ -204,6 +275,20 @@ async fn main(spawner: Spawner) {
     fn make_app() -> picoserve::Router<AppRouter, WebState> {
         picoserve::Router::new()
             .route("/", get(get_index_page))
+            .route(
+                (
+                    "/static/js",
+                    picoserve::routing::parse_path_segment::<heapless::String<32>>(),
+                ),
+                get(get_static_js_page),
+            )
+            .route(
+                (
+                    "/static/css",
+                    picoserve::routing::parse_path_segment::<heapless::String<32>>(),
+                ),
+                get(get_static_css_page),
+            )
             .route(
                 ("/led", picoserve::routing::parse_path_segment::<LedState>()),
                 post(post_led_state),
