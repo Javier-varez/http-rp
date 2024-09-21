@@ -3,6 +3,7 @@
 #![feature(type_alias_impl_trait)]
 #![feature(impl_trait_in_assoc_type)]
 
+pub mod http;
 pub mod usb;
 
 use cyw43_pio::PioSpi;
@@ -29,46 +30,6 @@ struct WebState {
     control: &'static core::cell::RefCell<&'static mut cyw43::Control<'static>>,
 }
 
-struct Html(&'static str);
-struct Js(&'static str);
-struct Css(&'static str);
-
-impl picoserve::response::Content for Html {
-    async fn write_content<W: picoserve::io::Write>(self, writer: W) -> Result<(), W::Error> {
-        self.0.as_bytes().write_content(writer).await
-    }
-    fn content_type(&self) -> &'static str {
-        "text/html"
-    }
-    fn content_length(&self) -> usize {
-        self.0.as_bytes().len()
-    }
-}
-
-impl picoserve::response::Content for Js {
-    async fn write_content<W: picoserve::io::Write>(self, writer: W) -> Result<(), W::Error> {
-        self.0.as_bytes().write_content(writer).await
-    }
-    fn content_type(&self) -> &'static str {
-        "text/js"
-    }
-    fn content_length(&self) -> usize {
-        self.0.as_bytes().len()
-    }
-}
-
-impl picoserve::response::Content for Css {
-    async fn write_content<W: picoserve::io::Write>(self, writer: W) -> Result<(), W::Error> {
-        self.0.as_bytes().write_content(writer).await
-    }
-    fn content_type(&self) -> &'static str {
-        "text/css"
-    }
-    fn content_length(&self) -> usize {
-        self.0.as_bytes().len()
-    }
-}
-
 async fn post_led_state(
     led_state: LedState,
     State(state): State<WebState>,
@@ -84,13 +45,7 @@ async fn get_static_js_page(
     _: State<WebState>,
 ) -> impl picoserve::response::IntoResponse {
     log::info!("Get /static/js/{page}");
-    match page.as_str() {
-        "bootstrap.bundle.min.js" => picoserve::response::Response::new(
-            picoserve::response::StatusCode::OK,
-            Js(include_str!("../static/js/bootstrap.bundle.min.js")),
-        ),
-        _ => picoserve::response::Response::new(picoserve::response::StatusCode::NOT_FOUND, Js("")),
-    }
+    http::js::get_resource(&page)
 }
 
 async fn get_static_css_page(
@@ -98,23 +53,15 @@ async fn get_static_css_page(
     _: State<WebState>,
 ) -> impl picoserve::response::IntoResponse {
     log::info!("Get /static/css/{page}");
-    match page.as_str() {
-        "bootstrap.min.css" => picoserve::response::Response::new(
-            picoserve::response::StatusCode::OK,
-            Css(include_str!("../static/css/bootstrap.min.css")),
-        ),
-        _ => {
-            picoserve::response::Response::new(picoserve::response::StatusCode::NOT_FOUND, Css(""))
-        }
-    }
+    http::css::get_resource(&page)
 }
 
-async fn get_index_page(_: State<WebState>) -> impl picoserve::response::IntoResponse {
-    log::info!("Get /");
-    picoserve::response::Response::new(
-        picoserve::response::StatusCode::OK,
-        Html(include_str!("../html/index.html")),
-    )
+async fn get_html_page(
+    page: heapless::String<32>,
+    _: State<WebState>,
+) -> impl picoserve::response::IntoResponse {
+    log::info!("Get /{page}");
+    http::html::get_resource(&page)
 }
 
 #[embassy_executor::task]
@@ -274,7 +221,10 @@ async fn main(spawner: Spawner) {
 
     fn make_app() -> picoserve::Router<AppRouter, WebState> {
         picoserve::Router::new()
-            .route("/", get(get_index_page))
+            .route(
+                picoserve::routing::parse_path_segment::<heapless::String<32>>(),
+                get(get_html_page),
+            )
             .route(
                 (
                     "/static/js",
