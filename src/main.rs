@@ -41,7 +41,7 @@ async fn post_led_state(
 }
 
 async fn get_static_js_page(
-    page: heapless::String<32>,
+    page: heapless::String<MAX_FILE_NAME_LEN>,
     _: State<WebState>,
 ) -> impl picoserve::response::IntoResponse {
     log::info!("Get /static/js/{page}");
@@ -49,7 +49,7 @@ async fn get_static_js_page(
 }
 
 async fn get_static_css_page(
-    page: heapless::String<32>,
+    page: heapless::String<MAX_FILE_NAME_LEN>,
     _: State<WebState>,
 ) -> impl picoserve::response::IntoResponse {
     log::info!("Get /static/css/{page}");
@@ -57,7 +57,7 @@ async fn get_static_css_page(
 }
 
 async fn get_html_page(
-    page: heapless::String<32>,
+    page: heapless::String<MAX_FILE_NAME_LEN>,
     _: State<WebState>,
 ) -> impl picoserve::response::IntoResponse {
     log::info!("Get /{page}");
@@ -151,6 +151,8 @@ impl Into<bool> for LedState {
     }
 }
 
+const MAX_FILE_NAME_LEN: usize = 32;
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let clock_config = embassy_rp::clocks::ClockConfig::crystal(12_000_000);
@@ -222,20 +224,20 @@ async fn main(spawner: Spawner) {
     fn make_app() -> picoserve::Router<AppRouter, WebState> {
         picoserve::Router::new()
             .route(
-                picoserve::routing::parse_path_segment::<heapless::String<32>>(),
+                picoserve::routing::parse_path_segment::<heapless::String<MAX_FILE_NAME_LEN>>(),
                 get(get_html_page),
             )
             .route(
                 (
                     "/static/js",
-                    picoserve::routing::parse_path_segment::<heapless::String<32>>(),
+                    picoserve::routing::parse_path_segment::<heapless::String<MAX_FILE_NAME_LEN>>(),
                 ),
                 get(get_static_js_page),
             )
             .route(
                 (
                     "/static/css",
-                    picoserve::routing::parse_path_segment::<heapless::String<32>>(),
+                    picoserve::routing::parse_path_segment::<heapless::String<MAX_FILE_NAME_LEN>>(),
                 ),
                 get(get_static_css_page),
             )
